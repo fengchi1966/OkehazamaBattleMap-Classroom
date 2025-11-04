@@ -51,7 +51,7 @@
 
   <script>
     // ------------------ Map init: Esri World Shaded Relief (no labels) ------------------
-    const map = L.map('map', { center: [34.5, 108.9], zoom: 5, zoomControl: true });
+    const map = L.map('map', { center: [35.2, 136.9], zoom: 5, zoomControl: true });
 
     const relief = L.tileLayer(
       'https://server.arcgisonline.com/ArcGIS/rest/services/World_Shaded_Relief/MapServer/tile/{z}/{y}/{x}',
@@ -67,8 +67,8 @@
     // ------------------ Measure control ------------------
     L.control.measure({
       position: 'topleft',
-      primaryLengthUnit: 'kilometers',
-      secondaryLengthUnit: 'meters',
+      primaryLengthUnit: 'miles',
+      secondaryLengthUnit: 'feet',
       primaryAreaUnit: 'hectares',
       secondaryAreaUnit: 'sqmeters',
       activeColor: '#e67e22',
