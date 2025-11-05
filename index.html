@@ -60,24 +60,7 @@
   </div>
 
   <script>
-    // ---------- simple logger to the Diagnostics panel ----------
-    const diagList = document.getElementById('diagList');
-    function log(msg, cls){ 
-      const p = document.createElement('div'); 
-      p.className = cls ? `diag-box ${cls}` : 'diag-box'; 
-      p.textContent = msg; 
-      diagList.after(p);
-    }
-    function appendTo(el, msg){ el.textContent += '\\n' + msg; }
-
-    // Catch any unexpected runtime errors and show them on page
-    window.addEventListener('error', e => { log('Uncaught: ' + e.message, 'err'); });
-    window.addEventListener('unhandledrejection', e => { log('Unhandled promise rejection: ' + (e.reason && e.reason.message || e.reason), 'err'); });
-
-    (async function main(){
-      try {
-        const CB = Date.now(); // cache buster
-
+   
         // ---------- map ----------
         const map = L.map('map', { center: [35.2, 136.9], zoom: 7, zoomControl: true });
         L.tileLayer(
@@ -93,25 +76,7 @@
         const pane = map.createPane('pngPane');
         pane.style.zIndex = 650;
 
-        // measure tool (guarded)
-        //try {
-         // if (L.control && L.control.measure) {
-            L.control.measure({
-              position: 'topleft',
-              primaryLengthUnit: 'miles',
-              secondaryLengthUnit: 'feet',
-              primaryAreaUnit: 'hectares',
-              secondaryAreaUnit: 'sqmeters',
-              activeColor: '#e67e22',
-              completedColor: '#2c3e50'
-            }).addTo(map);
-            log('measure tool: OK', 'ok');
-          } else {
-            log('measure tool not available — plugin blocked; continuing without it.', 'warn');
-          }
-        } catch (e) {
-          log('measure init failed: ' + e.message, 'warn');
-        }
+      
 
         // ---------- config ----------
         const overlaysConfig = [
