@@ -79,7 +79,7 @@
         const CB = Date.now(); // cache buster
 
         // ---------- map ----------
-        const map = L.map('map', { center: [35.2, 136.9], zoom: 10, zoomControl: true });
+        const map = L.map('map', { center: [35.2, 136.9], zoom: 7, zoomControl: true });
         L.tileLayer(
           'https://server.arcgisonline.com/ArcGIS/rest/services/World_Shaded_Relief/MapServer/tile/{z}/{y}/{x}',
           { maxZoom: 18, attribution: '&copy; Esri | World Shaded Relief' }
