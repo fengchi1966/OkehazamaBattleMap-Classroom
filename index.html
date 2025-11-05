@@ -3,28 +3,29 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Okehazama Overlays — Shaded Relief + Measure</title>
+  <title>Okehazama Overlays — Shaded Relief + Measure + Diagnostics</title>
 
   <!-- Leaflet core -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <!-- Measure tool (distance/area) -->
+  <!-- Measure tool -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet-measure@3.3.1/dist/leaflet-measure.css">
   <script src="https://unpkg.com/leaflet-measure@3.3.1/dist/leaflet-measure.min.js"></script>
 
   <style>
     html, body, #map { height: 100%; margin: 0; }
-    /* Right-top control panel */
-    #panel {
-      position: absolute;
-      right: 12px; top: 12px; z-index: 9999;
-      width: 320px; max-width: calc(100vw - 24px);
-      background: rgba(255,255,255,.95);
+
+    #panel, #diag {
+      position: absolute; z-index: 9999;
+      background: rgba(255,255,255,.96);
       padding: 10px 12px; border-radius: 12px;
       font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
       box-shadow: 0 2px 14px rgba(0,0,0,.18);
+      max-width: min(420px, calc(100vw - 24px));
+      overflow: auto; max-height: 90vh;
     }
+    #panel { right: 12px; top: 12px; width: 340px; }
     #panel h3 { margin: 0 0 8px; font-size: 16px; }
     .layer-row { border-top: 1px solid #eee; padding-top: 8px; margin-top: 8px; }
     .row-head { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
@@ -32,11 +33,17 @@
     .row-head label { font-weight: 600; cursor: pointer; }
     .opacity-row { display:flex; align-items:center; gap:8px; }
     .opacity-row input[type="range"] { flex: 1; }
-    #toast {
-      position: absolute; left: 12px; bottom: 12px; z-index: 9999;
-      background: rgba(0,0,0,.76); color: #fff; padding: 8px 12px;
-      border-radius: 8px; font-size: 13px; max-width: 520px;
+
+    #diag { left: 12px; top: 12px; width: 360px; }
+    #diag h3 { margin: 0 0 8px; font-size: 16px; }
+    .diag-box {
+      font-family: ui-monospace, Consolas, monospace;
+      font-size: 12px; white-space: pre-wrap;
+      background: #fafafa; border: 1px solid #eee;
+      border-radius: 8px; padding: 8px; margin: 8px 0;
     }
+    .ok{color:#1e7e34} .err{color:#c0392b} .warn{color:#d68910}
+    .btn{appearance:none;border:1px solid #ddd;background:#fff;border-radius:6px;padding:2px 8px;cursor:pointer}
   </style>
 </head>
 <body>
@@ -47,24 +54,26 @@
     <div id="layersUI"></div>
   </div>
 
-  <div id="toast">Loaded. If you don't see overlays yet, zoom once or wait for network.</div>
+  <div id="diag">
+    <h3>Diagnostics</h3>
+    <div id="diagList"></div>
+  </div>
 
   <script>
-    // ------------------ Map init: Esri World Shaded Relief (no labels) ------------------
-    const map = L.map('map', { center: [35.2, 136.9], zoom: 5, zoomControl: true });
+    // ------------------ Map init ------------------
+    const map = L.map('map', { center: [35.2, 136.9], zoom: 10, zoomControl: true });
 
-    const relief = L.tileLayer(
+    // Basemap: Esri World Shaded Relief + light gray for context
+    L.tileLayer(
       'https://server.arcgisonline.com/ArcGIS/rest/services/World_Shaded_Relief/MapServer/tile/{z}/{y}/{x}',
       { maxZoom: 18, attribution: '&copy; Esri | World Shaded Relief' }
     ).addTo(map);
-
-    // (Optional) ultra-light coastline/outline
-    const grayBase = L.tileLayer(
+    L.tileLayer(
       'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
       { maxZoom: 19, opacity: 0.2, attribution: '&copy; Esri | Light Gray Base' }
     ).addTo(map);
 
-    // ------------------ Measure control ------------------
+    // Measure control
     L.control.measure({
       position: 'topleft',
       primaryLengthUnit: 'miles',
@@ -75,13 +84,18 @@
       completedColor: '#2c3e50'
     }).addTo(map);
 
-    // ------------------ Overlays config (PNG + WLD) ------------------
+    // High z-index pane for overlays
+    const pane = map.createPane('pngPane');
+    pane.style.zIndex = 650;
+
+    // ------------------ Overlays config ------------------
+    const CB = Date.now(); // cache-buster
     const overlaysConfig = [
       {
         id: 'battle',
         name: 'Okehazama Battle (1560)',
-        png:  'OkehazamaBattle_1560.png',
-        wld:  'OkehazamaBattle_1560.wld',
+        png:  `OkehazamaBattle_1560.png?v=${CB}`,
+        wld:  `OkehazamaBattle_1560.wld?v=${CB}`,
         color:'#e74c3c',
         defaultOpacity: 0.85,
         checked: true
@@ -89,33 +103,35 @@
       {
         id: 'owari',
         name: 'Zengoku Map',
-        png:  'Zengoku.png',
-        wld:  'Zengoku.wld', 
+        png:  `Zengoku.png?v=${CB}`,
+        wld:  `Zengoku.wld?v=${CB}`,
         color:'#2980b9',
         defaultOpacity: 0.75,
         checked: true
       }
     ];
 
-    // Storage for Leaflet instances and their bounds
     const overlayRefs = new Map();
     let unionBounds = null;
 
-    // ------------ Utils: robust fetch text (works on GitHub Pages) ------------
+    // ------------------ Helpers ------------------
+    async function head(url){
+      const r = await fetch(url, { method: 'HEAD', cache: 'no-store' });
+      return { ok: r.ok, status: r.status };
+    }
     async function readText(url) {
-      const r = await fetch(url + '?v=' + Date.now());
+      const r = await fetch(url, { cache: 'no-store' });
       if (!r.ok) throw new Error(`Fetch ${url} failed: ${r.status}`);
       const buf = await r.arrayBuffer();
       return new TextDecoder('utf-8').decode(buf);
     }
     function parseWorldFile(text) {
-      // world file order: A, D, B, E, C, F  (some docs list A,B,D,E,C,F — our earlier code uses A,B,D,E,C,F)
-      // We deliberately use [A,B,D,E,C,F] order as per your existing pipeline.
+      // Expect 6 lines: A, B, D, E, C, F  (B=D=0 for north-up)
       const nums = text.trim().split(/[\r\n]+/).map(s => parseFloat(s));
       if (nums.length !== 6 || nums.some(n => Number.isNaN(n))) {
         throw new Error('WLD parse failed: need 6 numeric lines');
       }
-      const [A, B, D, E, C, F] = nums; // matches your working code path
+      const [A, B, D, E, C, F] = nums;
       return { A, B, D, E, C, F };
     }
     function loadImageSize(url) {
@@ -123,57 +139,83 @@
         const img = new Image();
         img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
         img.onerror = () => reject(new Error('PNG load failed: ' + url));
-        img.src = url + '?v=' + Date.now();
+        img.src = url;
       });
     }
 
-    // ------------ Place overlay from PNG + WLD ------------
+    function addDiagItem(cfg){
+      const wrap = document.createElement('div');
+      wrap.className = 'diag-box';
+      wrap.id = `diag-${cfg.id}`;
+      wrap.textContent = `▶ ${cfg.name}\nPNG: ${cfg.png}\nWLD: ${cfg.wld}`;
+      document.getElementById('diagList').appendChild(wrap);
+      return wrap;
+    }
+
     async function addOverlay(cfg) {
+      const diag = addDiagItem(cfg);
       try {
+        // HEAD checks
+        const [wh, ph] = await Promise.all([ head(cfg.wld), head(cfg.png) ]);
+        diag.textContent += `\nWLD HEAD: ${wh.status} ${wh.ok?'OK':'ERR'}\nPNG HEAD: ${ph.status} ${ph.ok?'OK':'ERR'}`;
+        if(!wh.ok) throw new Error('WLD not reachable');
+        if(!ph.ok) throw new Error('PNG not reachable');
+
+        // Read and parse
         const wldText = await readText(cfg.wld);
         const { A, B, D, E, C, F } = parseWorldFile(wldText);
         const { width: W, height: H } = await loadImageSize(cfg.png);
+        diag.textContent += `\nsize: ${W} × ${H}\nA=${A} B=${B} D=${D} E=${E}\nC=${C}\nF=${F}`;
 
-        // Compute the 4 corners in EPSG:3857 (world-file math):
-        // X = C + A*x + B*y ; Y = F + D*x + E*y ; x∈[0..W], y∈[0..H]
+        // Corners in EPSG:3857
         const corners3857 = [
-          [C + A*0 + B*0,   F + D*0 + E*0],     // UL
-          [C + A*W + B*0,   F + D*W + E*0],     // UR
-          [C + A*W + B*H,   F + D*W + E*H],     // LR
-          [C + A*0 + B*H,   F + D*0 + E*H]      // LL
+          [C + A*0 + B*0,   F + D*0 + E*0],
+          [C + A*W + B*0,   F + D*W + E*0],
+          [C + A*W + B*H,   F + D*W + E*H],
+          [C + A*0 + B*H,   F + D*0 + E*H]
         ];
-        // Project to LatLng (Leaflet expects EPSG:3857 unprojected)
         const cornersLatLng = corners3857.map(([x, y]) =>
           L.CRS.EPSG3857.unproject(L.point(x, y))
         );
         const bounds = L.latLngBounds(cornersLatLng);
+        diag.textContent += `\nbounds: SW (${bounds.getSouthWest().lat.toFixed(5)}, ${bounds.getSouthWest().lng.toFixed(5)})  NE (${bounds.getNorthEast().lat.toFixed(5)}, ${bounds.getNorthEast().lng.toFixed(5)})`;
 
-        const overlay = L.imageOverlay(cfg.png, bounds, {
-          opacity: cfg.defaultOpacity,
-          interactive: false
-        });
+        // Overlay + border in a high-z pane
+        const overlay = L.imageOverlay(cfg.png, bounds, { opacity: cfg.defaultOpacity, pane:'pngPane', interactive: false });
         if (cfg.checked) overlay.addTo(map);
-
-        const border = L.polyline([...cornersLatLng, cornersLatLng[0]], {
-          color: cfg.color, weight: 2, opacity: 0.9
-        });
+        const border = L.polyline([...cornersLatLng, cornersLatLng[0]], { color: cfg.color, weight: 2, opacity: 0.9, pane:'pngPane' });
         if (cfg.checked) border.addTo(map);
 
         overlayRefs.set(cfg.id, { overlay, border, bounds });
 
-        // Merge bounds safely (Leaflet 1.9: no bounds.clone())
+        // Merge bounds
         unionBounds = unionBounds
           ? unionBounds.extend(bounds)
           : L.latLngBounds(bounds.getSouthWest(), bounds.getNorthEast());
-        if (unionBounds) map.fitBounds(unionBounds.pad(0.05));
+        map.fitBounds(unionBounds.pad(0.05));
+
+        // Zoom button
+        const btn = document.createElement('button');
+        btn.className = 'btn';
+        btn.textContent = 'Zoom to layer';
+        btn.onclick = () => map.fitBounds(bounds.pad(0.05));
+        diag.appendChild(document.createTextNode('\n'));
+        diag.appendChild(btn);
+
+        diag.appendChild(document.createTextNode('\n'));
+        const ok = document.createElement('span'); ok.className='ok'; ok.textContent='✓ added';
+        diag.appendChild(ok);
 
       } catch (err) {
         console.error(err);
+        diag.appendChild(document.createTextNode('\n'));
+        const e = document.createElement('span'); e.className='err'; e.textContent = '✖ ' + err.message;
+        diag.appendChild(e);
         alert(`Overlay failed [${cfg.name}]: ${err.message}`);
       }
     }
 
-    // ------------ UI: checkbox + opacity slider per layer ------------
+    // -------- UI: checkbox + opacity per layer --------
     function buildUI() {
       const box = document.getElementById('layersUI');
       overlaysConfig.forEach(cfg => {
@@ -244,7 +286,6 @@
     buildUI();
     (async () => {
       for (const cfg of overlaysConfig) await addOverlay(cfg);
-      setTimeout(() => { const t = document.getElementById('toast'); if (t) t.remove(); }, 3000);
     })();
   </script>
 </body>
